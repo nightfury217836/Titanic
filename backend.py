@@ -4,48 +4,43 @@ import base64
 import re
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 import traceback
-
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
+import streamlit as st
 from google import genai
 from dotenv import load_dotenv
 
-# environment variables
+# Use Agg backend for headless environments like Streamlit Cloud
+matplotlib.use("Agg")
+
+# --- Load environment variables / Secrets ---
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY")
+# Prioritize Streamlit Secrets for cloud deployment, fallback to .env for local
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+
 if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in environment")
+    st.error("GEMINI_API_KEY not found. Please add it to Streamlit Secrets.")
+    st.stop()
 
-# FastAPI setup 
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Static folder for plots
-STATIC_DIR = "static"
+# --- Assets setup ---
+# Streamlit Cloud needs a writable directory
+STATIC_DIR = "temp_assets"
 os.makedirs(STATIC_DIR, exist_ok=True)
 PLOT_PATH = os.path.join(STATIC_DIR, "temp_plot.png")
 
-# Loading Titanic dataset
-URL = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
-df = pd.read_csv(URL)
-df.columns = [c.lower() for c in df.columns]
+# --- Load Titanic dataset ---
+@st.cache_data
+def load_data():
+    URL = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
+    data = pd.read_csv(URL)
+    data.columns = [c.lower() for c in data.columns]
+    return data
 
-# Initialize Gemini client
+df = load_data()
+
+# --- Initialize Gemini client ---
 client = genai.Client(api_key=GEMINI_API_KEY)
-
-class QueryRequest(BaseModel):
-    text: str
 
 # --- Helpers ---
 def extract_python_code(text: str) -> str:
@@ -78,10 +73,7 @@ def compute_numeric_query(prompt: str):
     return None
 
 def query_gemini_with_fallback(prompt: str, models=None, retries=2, delay=2):
-    """
-    Call Gemini models with fallback logic.
-    Returns text_response (string).
-    """
+    """Call Gemini models with fallback logic (Models kept as requested)."""
     if models is None:
         models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-1.5-flash"]
 
@@ -114,7 +106,7 @@ Question: {prompt}
     return f"Error: All models failed. Last error: {last_exception}"
 
 def process_titanic_query(prompt: str):
-    """Process query: numeric or plot/explanation"""
+    """Main logic function called by streamlit_app.py"""
     # Clean the old plot
     if os.path.exists(PLOT_PATH):
         try:
@@ -132,31 +124,27 @@ def process_titanic_query(prompt: str):
     # Calling Gemini with fallback
     text_response = query_gemini_with_fallback(prompt)
 
-    # Python plotting code if present
+    # Python plotting code execution
     img_base64 = None
-    # Check if the response contains code markers
     if "```" in text_response or any(kw in text_response for kw in ["plt.", "sns.", "fig ="]):
         try:
             code = extract_python_code(text_response)
             
-            # Clear any previous plots 
             plt.clf()
             plt.close('all') 
 
-            # Defining the execution environment
             exec_globals = {
                 "df": df, 
                 "plt": plt, 
                 "sns": sns, 
                 "pd": pd, 
                 "os": os,
-                "PLOT_PATH": PLOT_PATH
+                "PLOT_PATH": PLOT_PATH,
+                "np": __import__('numpy')
             }
             
-            # Executing the code
             exec(code, exec_globals)
             
-            # if file created
             if os.path.exists(PLOT_PATH):
                 with open(PLOT_PATH, "rb") as f:
                     img_base64 = base64.b64encode(f.read()).decode("utf-8")
@@ -165,17 +153,6 @@ def process_titanic_query(prompt: str):
                 text_response = "I tried to create a plot, but the file wasn't saved correctly."
         
         except Exception as e:
-            print(f"--- EXECUTION ERROR ---\n{traceback.format_exc()}-----------------------")
             text_response = f"I encountered an error while generating the plot: {str(e)}"
 
     return text_response, img_base64
-
-# API routes
-@app.post("/chat")
-def chat(query: QueryRequest):
-    text, img = process_titanic_query(query.text)
-    return {"response": text, "image": img}
-
-@app.get("/")
-def root():
-    return {"status": "Titanic API is running"}
