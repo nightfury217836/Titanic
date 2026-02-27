@@ -11,32 +11,24 @@ import streamlit as st
 from google import genai
 from dotenv import load_dotenv
 
-# Force matplotlib to use a non-interactive backend for cloud compatibility
 matplotlib.use("Agg")
 
-# --- 1. CONFIG & SECRETS ---
+# Staring
 load_dotenv()
 
-# Safer secret loading to prevent the StreamlitSecretNotFoundError
-GEMINI_API_KEY = None
-try:
-    if "GEMINI_API_KEY" in st.secrets:
-        GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-except Exception:
-    # Fallback for local development using .env
-    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# Secret loading 
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
-    st.error("🔑 **API Key Missing**: Please add `GEMINI_API_KEY = 'your_key'` to the Streamlit Secrets dashboard.")
+    st.error("**API Key Missing**: Please add `GEMINI_API_KEY = 'your_key'` to the Streamlit Secrets dashboard.")
     st.stop()
 
-# --- 2. ASSETS SETUP ---
 # Create directory for plots if it doesn't exist
 PLOT_DIR = "temp_assets"
 os.makedirs(PLOT_DIR, exist_ok=True)
 PLOT_PATH = os.path.join(PLOT_DIR, "temp_plot.png")
 
-# --- 3. DATA LOADING ---
+# DATA LOADING
 @st.cache_data
 def load_titanic_data():
     URL = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
@@ -46,10 +38,10 @@ def load_titanic_data():
 
 df = load_titanic_data()
 
-# Initialize the Gemini Client
+# Initializing the Gemini 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- 4. HELPERS ---
+# HELPERS
 
 def extract_python_code(text: str) -> str:
     """Extract code inside markdown blocks."""
@@ -81,12 +73,12 @@ def compute_numeric_query(prompt: str):
     return None
 
 def query_gemini_with_fallback(prompt: str, models=None, retries=2, delay=2):
-    """Specific triple-model fallback logic."""
+    """ Model fallback logic."""
     if models is None:
          models = [
-            "gemini-3.1-pro-preview", 
-            "gemini-3-flash-preview", 
-            "gemini-2.5-flash"       
+            "gemini-3-flash",
+             "gemini-2.5-flash",
+             "gemini-1.5-flash"
         ]
 
     full_prompt = f"""
@@ -117,7 +109,7 @@ def query_gemini_with_fallback(prompt: str, models=None, retries=2, delay=2):
                 continue
     return f"Error: All models failed. Last error: {last_err}"
 
-# --- 5. MAIN PROCESSOR ---
+# Main
 
 def process_titanic_query(prompt: str):
     """Main entry point for streamlit_app.py"""
@@ -128,16 +120,15 @@ def process_titanic_query(prompt: str):
         except:
             pass
 
-    # 1. Check numeric lookups
+    # Checking numeric lookups
     is_viz = any(k in prompt.lower() for k in ["plot", "chart", "graph", "show", "draw"])
     quick_answer = None if is_viz else compute_numeric_query(prompt)
     if quick_answer:
         return quick_answer, None
 
-    # 2. Get AI Response
     text_response = query_gemini_with_fallback(prompt)
 
-    # 3. Handle Plot Execution
+    # Handle Plot Execution
     img_b64 = None
     if "```" in text_response or any(kw in text_response for kw in ["plt.", "sns.", "fig ="]):
         try:
@@ -165,5 +156,6 @@ def process_titanic_query(prompt: str):
             text_response = f"Error during plot generation: {str(e)}"
 
     return text_response, img_b64
+
 
 
