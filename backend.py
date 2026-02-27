@@ -83,7 +83,7 @@ def compute_numeric_query(prompt: str):
 def query_gemini_with_fallback(prompt: str, models=None, retries=2, delay=2):
     """Specific triple-model fallback logic."""
     if models is None:
-        models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-1.5-flash"]
+         models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-1.5-flash"]
 
     full_prompt = f"""
     You are a Titanic data analyst.
@@ -161,3 +161,4 @@ def process_titanic_query(prompt: str):
             text_response = f"Error during plot generation: {str(e)}"
 
     return text_response, img_b64
+
