@@ -1,0 +1,8 @@
+streamlit
+pandas
+matplotlib
+seaborn
+google-genai
+python-dotenv
+pillow
+requests
