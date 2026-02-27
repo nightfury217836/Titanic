@@ -4,14 +4,14 @@ from io import BytesIO
 from PIL import Image
 from backend import process_titanic_query
 
-# --- Page Configuration ---
+# Page Configuration
 st.set_page_config(
     page_title="Titanic Insights",
     page_icon="🚢",
     layout="centered"
 )
 
-# --- Custom Styling ---
+# Custom Styling
 st.markdown("""
     <style>
     .stApp { background-color: #f8f9fa; }
@@ -22,15 +22,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- Header Section ---
+# Header
 st.title("⚓ Titanic Data Assistant")
 st.markdown("Ask questions about passenger demographics, survival rates, or request custom charts.")
 
-# --- Session State Initialization ---
+# Session State 
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- Render Chat History ---
+# Render Chat History
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -44,15 +44,15 @@ for msg in st.session_state.messages:
             except Exception:
                 pass
 
-# --- Chat Input & Logic ---
+# Chat Input & Logic
 if prompt := st.chat_input("Ask about Titanic data..."):
     
-    # 1. Display User Message
+    # Display User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Generate Assistant Response
+    # Generate Assistant Response
     with st.chat_message("assistant"):
         with st.spinner("Analyzing..."):
             try:
@@ -71,7 +71,7 @@ if prompt := st.chat_input("Ask about Titanic data..."):
                         caption="Analysis Result"
                     )
 
-                # 3. Store in History
+                # Store in History
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": bot_response,
@@ -81,3 +81,4 @@ if prompt := st.chat_input("Ask about Titanic data..."):
             except Exception as e:
 
                 st.error(f"Something went wrong: {str(e)}")
+
