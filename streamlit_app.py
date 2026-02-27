@@ -2,7 +2,7 @@ import streamlit as st
 import base64
 from io import BytesIO
 from PIL import Image
-from backend import process_query 
+from backend import process_titanic_query
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -57,7 +57,7 @@ if prompt := st.chat_input("Ask about Titanic data..."):
         with st.spinner("Analyzing..."):
             try:
                 # Call the backend logic directly
-                bot_response, img_data = process_query(prompt)
+                bot_response, img_data = process_titanic_query(prompt)
 
                 # Render Text Response
                 st.markdown(bot_response)
@@ -79,4 +79,5 @@ if prompt := st.chat_input("Ask about Titanic data..."):
                 })
 
             except Exception as e:
+
                 st.error(f"Something went wrong: {str(e)}")
