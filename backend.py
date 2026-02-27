@@ -11,40 +11,48 @@ import streamlit as st
 from google import genai
 from dotenv import load_dotenv
 
-# Use Agg backend for headless environments like Streamlit Cloud
+# Force matplotlib to use a non-interactive backend for cloud compatibility
 matplotlib.use("Agg")
 
-# --- Load environment variables / Secrets ---
+# --- 1. CONFIG & SECRETS ---
 load_dotenv()
-# Prioritize Streamlit Secrets for cloud deployment, fallback to .env for local
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+
+# Safer secret loading to prevent the StreamlitSecretNotFoundError
+GEMINI_API_KEY = None
+try:
+    if "GEMINI_API_KEY" in st.secrets:
+        GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except Exception:
+    # Fallback for local development using .env
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
-    st.error("GEMINI_API_KEY not found. Please add it to Streamlit Secrets.")
+    st.error("🔑 **API Key Missing**: Please add `GEMINI_API_KEY = 'your_key'` to the Streamlit Secrets dashboard.")
     st.stop()
 
-# --- Assets setup ---
-# Streamlit Cloud needs a writable directory
-STATIC_DIR = "temp_assets"
-os.makedirs(STATIC_DIR, exist_ok=True)
-PLOT_PATH = os.path.join(STATIC_DIR, "temp_plot.png")
+# --- 2. ASSETS SETUP ---
+# Create directory for plots if it doesn't exist
+PLOT_DIR = "temp_assets"
+os.makedirs(PLOT_DIR, exist_ok=True)
+PLOT_PATH = os.path.join(PLOT_DIR, "temp_plot.png")
 
-# --- Load Titanic dataset ---
+# --- 3. DATA LOADING ---
 @st.cache_data
-def load_data():
+def load_titanic_data():
     URL = "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv"
     data = pd.read_csv(URL)
     data.columns = [c.lower() for c in data.columns]
     return data
 
-df = load_data()
+df = load_titanic_data()
 
-# --- Initialize Gemini client ---
+# Initialize the Gemini Client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# --- Helpers ---
+# --- 4. HELPERS ---
+
 def extract_python_code(text: str) -> str:
-    """Extract code inside ```python ... ``` or ``` ... ``` blocks."""
+    """Extract code inside markdown blocks."""
     match = re.search(r"```python\n(.*?)\n```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
@@ -54,78 +62,79 @@ def extract_python_code(text: str) -> str:
     return text.strip()
 
 def compute_numeric_query(prompt: str):
-    """Compute numeric/statistics answers from the dataset."""
-    prompt_lower = prompt.lower()
-    if "percentage" in prompt_lower and "male" in prompt_lower:
+    """Hardcoded stats for high accuracy on common questions."""
+    q = prompt.lower()
+    if "percentage" in q and "male" in q:
         total = len(df)
         males = df[df['sex'] == 'male'].shape[0]
-        return f"{(males/total)*100:.2f}% of passengers were male"
-    if "percentage" in prompt_lower and "female" in prompt_lower:
+        return f"{(males/total)*100:.2f}% of passengers were male."
+    if "percentage" in q and "female" in q:
         total = len(df)
         females = df[df['sex'] == 'female'].shape[0]
-        return f"{(females/total)*100:.2f}% of passengers were female"
-    if "survival rate" in prompt_lower and "class" in prompt_lower:
+        return f"{(females/total)*100:.2f}% of passengers were female."
+    if "survival rate" in q and "class" in q:
         rates = df.groupby('pclass')['survived'].mean().to_dict()
-        return "Survival rates by class:\n" + "\n".join([f"Class {k}: {v:.2%}" for k,v in rates.items()])
-    if "average age" in prompt_lower:
+        return "Survival rates by class:\n" + "\n".join([f"Class {k}: {v:.2%}" for k, v in rates.items()])
+    if "average age" in q:
         avg_age = df['age'].mean()
-        return f"The average age of passengers is {avg_age:.2f} years"
+        return f"The average age of passengers is {avg_age:.2f} years."
     return None
 
 def query_gemini_with_fallback(prompt: str, models=None, retries=2, delay=2):
-    """Call Gemini models with fallback logic (Models kept as requested)."""
+    """Specific triple-model fallback logic."""
     if models is None:
         models = ["gemini-3-flash-preview", "gemini-2.5-flash", "gemini-1.5-flash"]
 
     full_prompt = f"""
-You are a Titanic data analyst.
-Use the pandas dataframe 'df' (columns: {', '.join(df.columns)}).
-If asked to generate a chart/plot:
-- Provide ONLY Python code (matplotlib/seaborn).
-- Save the plot to '{PLOT_PATH}' using plt.savefig('{PLOT_PATH}').
-- Do NOT use plt.show().
+    You are a Titanic data analyst.
+    Use the pandas dataframe 'df' (columns: {', '.join(df.columns)}).
+    
+    If asked to generate a chart/plot:
+    - Provide ONLY Python code (matplotlib/seaborn).
+    - Save the plot to '{PLOT_PATH}' using plt.savefig('{PLOT_PATH}').
+    - Do NOT use plt.show().
+    
+    Otherwise, answer briefly in text.
+    Question: {prompt}
+    """
 
-Otherwise, answer briefly in text.
-
-Question: {prompt}
-"""
-
-    last_exception = None
-    for model in models:
+    last_err = None
+    for model_name in models:
         for attempt in range(retries):
             try:
                 response = client.models.generate_content(
-                    model=model,
+                    model=model_name,
                     contents=full_prompt
                 )
                 return response.text.strip()
             except Exception as e:
-                last_exception = e
+                last_err = e
                 time.sleep(delay)
                 continue
-    return f"Error: All models failed. Last error: {last_exception}"
+    return f"Error: All models failed. Last error: {last_err}"
+
+# --- 5. MAIN PROCESSOR ---
 
 def process_titanic_query(prompt: str):
-    """Main logic function called by streamlit_app.py"""
-    # Clean the old plot
+    """Main entry point for streamlit_app.py"""
+    # Clear old plots to avoid stale images
     if os.path.exists(PLOT_PATH):
         try:
             os.remove(PLOT_PATH)
-        except Exception:
+        except:
             pass
 
-    # Checking numeric queries first
-    is_plot = any(k in prompt.lower() for k in ["plot", "chart", "graph", "show", "draw"])
-    numeric_answer = None if is_plot else compute_numeric_query(prompt)
-    
-    if numeric_answer:
-        return numeric_answer, None
+    # 1. Check numeric lookups
+    is_viz = any(k in prompt.lower() for k in ["plot", "chart", "graph", "show", "draw"])
+    quick_answer = None if is_viz else compute_numeric_query(prompt)
+    if quick_answer:
+        return quick_answer, None
 
-    # Calling Gemini with fallback
+    # 2. Get AI Response
     text_response = query_gemini_with_fallback(prompt)
 
-    # Python plotting code execution
-    img_base64 = None
+    # 3. Handle Plot Execution
+    img_b64 = None
     if "```" in text_response or any(kw in text_response for kw in ["plt.", "sns.", "fig ="]):
         try:
             code = extract_python_code(text_response)
@@ -133,26 +142,22 @@ def process_titanic_query(prompt: str):
             plt.clf()
             plt.close('all') 
 
+            # Execution context
             exec_globals = {
-                "df": df, 
-                "plt": plt, 
-                "sns": sns, 
-                "pd": pd, 
-                "os": os,
-                "PLOT_PATH": PLOT_PATH,
-                "np": __import__('numpy')
+                "df": df, "plt": plt, "sns": sns, "pd": pd, 
+                "os": os, "PLOT_PATH": PLOT_PATH, "np": __import__('numpy')
             }
             
             exec(code, exec_globals)
             
             if os.path.exists(PLOT_PATH):
                 with open(PLOT_PATH, "rb") as f:
-                    img_base64 = base64.b64encode(f.read()).decode("utf-8")
+                    img_b64 = base64.b64encode(f.read()).decode("utf-8")
                 text_response = "I have generated the requested visualization."
             else:
-                text_response = "I tried to create a plot, but the file wasn't saved correctly."
+                text_response = "I tried to create a plot, but it wasn't saved correctly."
         
         except Exception as e:
-            text_response = f"I encountered an error while generating the plot: {str(e)}"
+            text_response = f"Error during plot generation: {str(e)}"
 
-    return text_response, img_base64
+    return text_response, img_b64
