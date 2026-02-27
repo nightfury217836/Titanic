@@ -12,8 +12,6 @@ from google import genai
 from dotenv import load_dotenv
 
 matplotlib.use("Agg")
-
-# Staring
 load_dotenv()
 
 # Secret loading 
@@ -152,6 +150,7 @@ def process_titanic_query(prompt: str):
             text_response = f"Error during plot generation: {str(e)}"
 
     return text_response, img_b64
+
 
 
 
